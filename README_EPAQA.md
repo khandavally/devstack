@@ -1,7 +1,7 @@
 EPA QA software installation 
 
 steps:
- 1. After the devstack setup navigate to EPA_QA_v1.5.1
+ 1. After the devstack setup navigate to EPAQA
  2. Execute the command : python EPA_QA.py EPA_QA.conf
 
 How to check the installation of EPA_QA software ?.

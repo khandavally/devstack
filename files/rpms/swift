@@ -1,0 +1,18 @@
+curl
+gcc
+libffi-devel
+memcached
+python-configobj
+python-coverage
+python-devel
+python-eventlet
+python-greenlet
+python-netifaces
+python-nose
+python-paste-deploy # dist:f16,f17,f18,f19
+python-simplejson
+python-webob
+pyxattr
+sqlite
+xfsprogs
+xinetd

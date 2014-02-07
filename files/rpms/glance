@@ -1,0 +1,17 @@
+gcc
+libffi-devel        # testonly
+libxml2-devel
+libxslt-devel       # testonly
+mysql-devel         # testonly
+openssl-devel       # testonly
+postgresql-devel    # testonly
+python-argparse
+python-devel
+python-eventlet
+python-greenlet
+python-paste-deploy #dist:f16,f17,f18,f19
+python-routes
+python-sqlalchemy
+python-wsgiref
+pyxattr
+zlib-devel          # testonly

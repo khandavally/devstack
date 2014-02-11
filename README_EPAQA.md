@@ -1,4 +1,4 @@
-EPA QA software installation 
+Enhanced Platform Awareness Quick Assist software installation 
 
 steps:
  1. After the devstack setup navigate to EPAQA

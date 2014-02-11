@@ -1,5 +1,7 @@
 from nova.db.sqlalchemy import api as model_api
-from nova.db.sqlalchemy.models import PciDevice, Instance, ComputeNode, VFAllocation
+from nova.db.sqlalchemy.models import PciDevice, Instance, ComputeNode
+import collections
+#, VFAllocation
 
 session = model_api.get_session()
 WORK_LOAD = ["cp","cr"]
@@ -7,7 +9,7 @@ WORK_LOAD = ["cp","cr"]
 
 def execute_vf_allocation(req_vf,los,req_work,bus_list, *args,**kwargs):
     """This method is called from nova.scheduler.filter_scheduler.FilterScheduler"""
-        
+    base_dict = collections.OrderedDict()    
     get_bus_slot = session.query(PciDevice).from_statement("select id,bus,slot from pci_devices where status = :status GROUP BY bus, slot").params(status="available").all()
     obj_list = [obj for obj in get_bus_slot if obj.bus in bus_list]
     if not obj_list:
@@ -32,19 +34,18 @@ def execute_vf_allocation(req_vf,los,req_work,bus_list, *args,**kwargs):
         """ Get the Policy value from the input """
         los_ass_final = int(los)
 
-        """ Update the Records in New Temp Table for population """
-        update_vf_table = """INSERT INTO vf_allocation (bus,slot,los,cp_vf,cr_vf,total_vf) VALUES (%s,%s,%s,%s,%s,%s)""" % (BUS,SLOT,los_ass_final,cp_vf_assigned[0],cp_vf_assigned[1],(cp_vf_assigned[0]+cp_vf_assigned[1]))
-	insert_record =session.execute(update_vf_table)
+        """ Create obtained records as a dictionary  """
+        base_dict[str(BUS)+":"+str(SLOT)] = [{'cp': cp_vf_assigned[0], 'cr': cp_vf_assigned[1]}]
 
         """ VF Allocation Algorithm Logic"""
     if (((req_vf % 2 == 0) and (req_work == "cp-cr")) or (req_work == "cp") or (req_work == "cr")):
-        result = VF_Allocation_Extended_Logic(req_vf,los,req_work)
+        result = VF_Allocation_Extended_Logic(req_vf,los,req_work,base_dict)
         return result
     else:
         return []
 
 
-def VF_Allocation_Extended_Logic(req_vf,los,req_work):
+def VF_Allocation_Extended_Logic(req_vf,los,req_work,base_dict):
 
     address_list = []
     address_workload_list = []
@@ -59,24 +60,25 @@ def VF_Allocation_Extended_Logic(req_vf,los,req_work):
         elif REQ_VF == "cp-cr" and ( req_vf / 2 <= RESET_COUNT ):
             req_work = 'cr'
 
-        """ VF Allocation Calculator """
-        if req_work == WORK_LOAD[0]:
-            vf_logic = "select bus,slot,IF(cp_vf=0,0,cp_vf/los) as utility_factor from vf_allocation where if(los=0,los = 0 or los = %s,los = %s and (cp_vf) < los)  ORDER by utility_factor DESC limit 1" % (int(los),int(los))
-            update_record = "UPDATE vf_allocation SET cp_vf = cp_vf+1, total_vf = total_vf + 1 where bus = %s and slot = %s"
-        elif req_work == WORK_LOAD[1]:
-            vf_logic="select bus,slot,IF(cr_vf=0,0,cr_vf/los) as utility_factor from vf_allocation where if(los=0,los = 0 or los = %s,los = %s and (cr_vf) < los)  ORDER by utility_factor DESC limit 1" % (int(los),int(los))
-            update_record = "UPDATE vf_allocation SET cr_vf = cr_vf+1, total_vf = total_vf + 1 where bus = %s and slot = %s"
-        selected_bus_slot = session.query("bus", "slot").from_statement(vf_logic).first()
-
+        filter_data = {k: v for k, v in base_dict.iteritems() if v[0][req_work] < los} # Filter the Bus slot having vfs less than los value for selected workload
+        if req_work == 'cp':
+            final_list = sorted(filter_data, key=lambda x: (filter_data[x][0]['cp'], filter_data[x][0]['cr'])) # sort the filtered dict based on cp cr count
+        else:
+            final_list = sorted(filter_data, key=lambda x: (filter_data[x][0]['cr'], filter_data[x][0]['cp'])) # sort the filtered dict based on cp cr count
+        if len(final_list) >= 1:
+            selected_bus_slot = final_list.sort() # Get last bus slot for PCI Instnace request
+            selected_bus_slot = final_list[-1]
+        else:
+            selected_bus_slot = "" 
+        
         if selected_bus_slot:
-            bus_,slot_ = selected_bus_slot
-            update_los = "UPDATE vf_allocation SET los = if(los = 0, %s, los) where bus = %s"
-            update_los_new = session.execute(update_los % (los,bus_))
-            update_record = session.execute(update_record % (bus_,slot_ ))           
+            bus_,slot_ = selected_bus_slot.split(":")
             address = [ad[0] for ad in session.query("address").from_statement("select address from pci_devices where bus = %s and slot = %s and status='available' and function <> 0" % (bus_,slot_)).all() if ad[0] not in address_list]
             if address:
                 address_list.append(address[0])
                 address_workload_list.append((address[0],req_work))
+                base_dict[selected_bus_slot][0][req_work] = base_dict[selected_bus_slot][0][req_work] + 1 # Update the vfs count for selected bus,slot with requested workload
+
 
         else:
             break;

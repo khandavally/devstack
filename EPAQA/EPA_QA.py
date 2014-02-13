@@ -37,7 +37,7 @@ class Read_conf():
     modules = ""
     nova_modules = ""
     keystone_modules = ""
-    horizon_modules = ""
+    horizon_directory = ""
     init_modules = ""
     cmd = ['sudo cp', 'sudo chmod 777', 'cd']
 
@@ -68,7 +68,6 @@ class Read_conf():
 
     def nova_writefile(self):
         """ Write the Nova Configuration File here """
-
         self.config = ConfigParser.ConfigParser()
         self.config.read("/etc/nova/nova.conf")
         self.pci_passthrough_whitelist = '[{"vendor_id":"'+ "8086" +'", "product_id":"'+ "0442"+'"}]'
@@ -249,21 +248,17 @@ if __name__ == "__main__":
     """
      Create Default Flavors and Add Extra Specifications
     """
-    if (pci_alias_name):
-        print "Writing Nova Configuration Files"
-        write_file_nova = Read_conf().nova_writefile()
-        print "Writing Keystone Configuration Files"
-        write_file_keystone = Read_conf().keystone_writefile()
-        if (write_file_nova == 1 and write_file_keystone == 1):
-            copy_file = Read_conf().concat_service_files()
-            if copy_file:
-                flavor_list = Create_Flavors(pci_alias_name).update_extra_specs()
-                print "Finished"
-            else:
-                print "Failed to create flavors"
+    print "Writing Nova Configuration Files"
+    write_file_nova = Read_conf().nova_writefile()
+    print "Writing Keystone Configuration Files"
+    write_file_keystone = Read_conf().keystone_writefile()
+    if (write_file_nova == 1 and write_file_keystone == 1):
+        copy_file = Read_conf().concat_service_files()
+        if copy_file:
+           flavor_list = Create_Flavors(pci_alias_name).update_extra_specs()
+           print "Finished"
         else:
-            print "Failed to create flavors"
+           print "Failed to create flavors"
     else:
-        print "Failed to write Nova configuration Files"
-        print "Script Completed"
-  
+        print "Failed to create flavors"
+    print "Script Completed"

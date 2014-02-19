@@ -50,9 +50,13 @@ class PciDevicePatch(PciDevice):
     # Version 1.1: bus, slot, function fields are added in fields dictionary
 
     fields = PciDevice.fields
-    fields['bus']=fields_obj.StringField()
-    fields['slot']= fields_obj.StringField()
-    fields['function'] =  fields_obj.StringField()
+    #fields['bus']=fields_obj.StringField()
+    #fields['slot']= fields_obj.StringField()
+    #fields['function'] =  fields_obj.StringField()
+    fields['bus']= obj_utils.str_or_none
+    fields['slot']= obj_utils.str_or_none
+    fields['function'] = obj_utils.str_or_none
+    fields['workload'] = obj_utils.str_or_none
 
     def update_device(self, dev_dict):
         """Sync the content from device dictionary to device object.
@@ -63,7 +67,7 @@ class PciDevicePatch(PciDevice):
         """
         # Note(jprabh1x): added bus,slot,function into fields dict as 
         # seperate fields.
-        no_changes = ('status', 'instance_uuid', 'id', 'extra_info')
+        no_changes = ('status', 'instance_uuid', 'id', 'extra_info', 'workload')
         map(lambda x: dev_dict.pop(x, None),
             [key for key in no_changes])
 
@@ -79,6 +83,27 @@ class PciDevicePatch(PciDevice):
                 extra_info.update({k: str(v)})
                 self.extra_info = extra_info
 
+    @check_device_status(dev_status=['claimed', 'allocated'])
+    def free(self, instance=None):
+        if instance and self.instance_uuid != instance['uuid']:
+            raise exception.PciDeviceInvalidOwner(
+                compute_node_id=self.compute_node_id,
+                address=self.address, owner=self.instance_uuid,
+                hopeowner=instance['uuid'])
+        old_status = self.status
+        self.status = 'available'
+        self.instance_uuid = None
+        self.workload = None
+        if old_status == 'allocated' and instance:
+            # Notes(yjiang5): remove this check when instance object for
+            # compute manager is finished
+            existed = next((dev for dev in instance['pci_devices']
+                if dev.id == self.id))
+            if isinstance(instance, dict):
+                instance['pci_devices'].remove(existed)
+            else:
+                instance.pci_devices.objects.remove(existed)
+
     def __init__(self):
         super(PciDevicePatch, self).__init__()
         self.obj_reset_changes()
@@ -86,7 +111,8 @@ class PciDevicePatch(PciDevice):
 
 class PciDeviceListPatch(PciDeviceList):
 
-    fields = {'objects':fields_obj.ListOfObjectsField('PciDevicePatch'),}
+    #fields = {'objects':fields_obj.ListOfObjectsField('PciDevicePatch'),}
+    #fields['objects'] =   obj_utils.nested_object(PciDeviceListPatch, none_ok=False) 
     
     def __init__(self):
         super(PciDeviceListPatch, self).__init__()
@@ -104,10 +130,12 @@ class PciTableMigrationPatch:
         bus = Column('bus', String(2), nullable=False)
         slot = Column('slot', String(2), nullable=False)
         function = Column('function', String(2), nullable=False)
+        workload = Column('workload', String(2), nullable=True)
         pci_devices.create_column(bus)
         pci_devices.create_column(slot)
         pci_devices.create_column(function)
-
+        pci_devices.create_column(workload)
+        
     def downgrade_pci_device_table(self, migrate_engine):
         LOG.audit(_("downgrading pci_devices table"))
         meta = MetaData(bind=migrate_engine)
@@ -115,40 +143,36 @@ class PciTableMigrationPatch:
         pci_devices.drop_column('bus')
         pci_devices.drop_column('slot')
         pci_devices.drop_column('function')
+        pci_devices.drop_column('workload')
 
 
 
 def notify_decorator(name, fn):
-    """Decorator for notify which is used from utils.monkey_patch().
-
-        :param name: name of the function
-        :param function: - object of the function
-        :returns: function -- decorated function
-
-    """
+    """Decorator for notify which is used from utils.monkey_patch()."""
     return fn
 
 @classmethod
 def pci_device_list_patch_new(cls, *args, **kwargs):
+    """Function which helps overridden of __new__ method in nova.objects.pci_device.PciDeviceList"""
     new_instance = object.__new__(PciDeviceListPatch)
     return new_instance
 
 @classmethod
 def pci_device_patch_new(cls, *args, **kwargs):
+    """Function which helps overridden of __new__ method in nova.objects.pci_device.PciDevice"""
     new_instance = object.__new__(PciDevicePatch)
     return new_instance
 
 
 
 def PciDevicePatchMain():
-    #PciDevicePatch.create = PciDevice.__dict__['create']
-    #PciDevice.create = PciDevicePatch.create
     PciDevice.__new__ = pci_device_patch_new
     PciDeviceList.__new__ = pci_device_list_patch_new
 
     PciDeviceModel.bus = Column(String(2), nullable=False)
     PciDeviceModel.slot = Column(String(2), nullable=False)
     PciDeviceModel.function = Column(String(2), nullable=False)
+    PciDeviceModel.workload = Column(String(2), nullable=True)
     obj = PciTableMigrationPatch()
     migrate_engine = session.get_engine()
         
@@ -156,5 +180,6 @@ def PciDevicePatchMain():
         obj.upgrade_pci_device_table(migrate_engine)
     except Exception as e:
         LOG.warn(_("Upgrading pci_device_table - %s"), e)
+		
 PciDevicePatchMain()
 
